@@ -10,11 +10,9 @@ import java.util.Map.Entry;
 import java.util.Optional;
 import com.github.javaparser.JavaParser;
 import com.github.javaparser.ast.CompilationUnit;
-import com.github.javaparser.ast.ImportDeclaration;
 import com.github.javaparser.ast.NodeList;
-import com.github.javaparser.ast.body.FieldDeclaration;
+import com.github.javaparser.ast.body.BodyDeclaration;
 import com.github.javaparser.ast.body.MethodDeclaration;
-import com.github.javaparser.ast.body.Parameter;
 import com.github.javaparser.ast.body.TypeDeclaration;
 import com.github.javaparser.ast.body.VariableDeclarator;
 import com.github.javaparser.ast.expr.AssignExpr;
@@ -24,6 +22,7 @@ import com.github.javaparser.ast.expr.NameExpr;
 import com.github.javaparser.ast.expr.VariableDeclarationExpr;
 import com.github.javaparser.ast.stmt.BlockStmt;
 import com.github.javaparser.ast.stmt.BreakStmt;
+import com.github.javaparser.ast.stmt.CatchClause;
 import com.github.javaparser.ast.stmt.DoStmt;
 import com.github.javaparser.ast.stmt.ExpressionStmt;
 import com.github.javaparser.ast.stmt.ForStmt;
@@ -33,24 +32,46 @@ import com.github.javaparser.ast.stmt.ReturnStmt;
 import com.github.javaparser.ast.stmt.Statement;
 import com.github.javaparser.ast.stmt.SwitchEntryStmt;
 import com.github.javaparser.ast.stmt.SwitchStmt;
+import com.github.javaparser.ast.stmt.ThrowStmt;
+import com.github.javaparser.ast.stmt.TryStmt;
 import com.github.javaparser.ast.stmt.WhileStmt;
-import com.github.javaparser.ast.type.Type;
-import lombok.RequiredArgsConstructor;
 import net.civeira.scanner.java.LocalDiagram;
+import net.civeira.scanner.java.diagrams.coders.StreamCoderCallback;
+import net.civeira.scanner.java.diagrams.searchers.QuarkusAppTypeSearchers;
+import net.civeira.scanner.java.diagrams.searchers.SqlTypeSearchers;
 import net.civeira.scanner.java.kroki.InputType;
 
 public class Sequence {
-  /* default */ Map<String, TypeDeclaration<?>> types = new HashMap<>();
-  /* default */ Map<String, String> files = new HashMap<>();
-  /* default */ Map<String, CompilationUnit> units = new HashMap<>();
+  private static final int DEEP = 1;
+  public List<TypeSearchCallback> searchers = new ArrayList<>();
+  public List<CodeSpecificCallback> specificators = new ArrayList<>();
+  public Map<String, TypeDeclaration<?>> types = new HashMap<>();
+  public Map<String, String> files = new HashMap<>();
+  public Map<String, CompilationUnit> units = new HashMap<>();
 
+  public Sequence() {
+    searchers.add(new SqlTypeSearchers());
+    searchers.add(new QuarkusAppTypeSearchers(this));
+    specificators.add(new StreamCoderCallback());
+  }
+  
   public void scan(File java) throws IOException {
     CompilationUnit cu = JavaParser.parse(java);
     String pack = cu.getPackageDeclaration().map(pck -> pck.getNameAsString() + ".").orElse("");
     for (TypeDeclaration<?> typeDeclaration : cu.getTypes()) {
-      types.put(pack + typeDeclaration.getNameAsString(), typeDeclaration);
-      files.put(pack + typeDeclaration.getNameAsString(), pack.replace(".", "/"));
-      units.put(pack + typeDeclaration.getNameAsString(), cu);
+      addType(cu, pack, typeDeclaration);
+    }
+  }
+  
+  private void addType(CompilationUnit cu, String pack, TypeDeclaration<?> typeDeclaration) {
+    String name = pack + typeDeclaration.getNameAsString();
+    types.put(name, typeDeclaration);
+    files.put(name, pack.replace(".", "/"));
+    units.put(name, cu);
+    for (BodyDeclaration<?> bodyDeclaration : typeDeclaration.getMembers()) {
+      if( bodyDeclaration instanceof TypeDeclaration ) {
+        addType(cu, name, (TypeDeclaration<?>)bodyDeclaration);
+      }
     }
   }
 
@@ -59,24 +80,24 @@ public class Sequence {
     for (Entry<String, TypeDeclaration<?>> entry : types.entrySet()) {
       TypeDeclaration<?> typeDeclaration = entry.getValue();
       for (MethodDeclaration methodDeclaration : typeDeclaration.getMethods()) {
-        SequenceExtractor extractor = new SequenceExtractor("result", this, entry.getKey(), methodDeclaration,
-            typeDeclaration, "Start");
         methodDeclaration.getBody().ifPresent(body -> {
           if (methodDeclaration.isPublic()) {
-            NodeList<Statement> statements = body.getStatements();
-
-            // Generamos un diagrama de secuencia
             String txt = "";
             List<String> entities = new ArrayList<>();
-            entities.add("participant " + typeDeclaration.getNameAsString() + "\n");
+            entities.add("participant " + typeDeclaration.getNameAsString());
             List<String> sequences = new ArrayList<>();
-            extractor.addStatements(statements, entities, sequences);
+            SecuenceDiagramInfo info =
+                new SecuenceDiagramInfo(new ArrayList<>(), entities, sequences, new ArrayList<>(), "result", this,
+                    entry.getKey(), methodDeclaration, typeDeclaration, "Start", "", DEEP, false);
+            scan(info);
             if (sequences.size() > 1 && !sequences.get(1).endsWith(" Start: result\n")) {
+              clearEntities(entities, "System.out");
+              clearEntities(entities, "System.err");
               // @formatter:off
               txt += "" 
-                  + "@startuml\n" 
+                  + "@startuml "+methodDeclaration.getNameAsString()+"\n"
                   + "actor  Start\n" 
-                  + String.join("", entities)+ "\n" 
+                  + String.join("\n", entities)+ "\n\n" 
                   + "Start -> " + typeDeclaration.getNameAsString() + " : " + methodDeclaration.getNameAsString() + "\n"
                   + String.join("", sequences) 
                   + "@enduml\n";
@@ -95,224 +116,187 @@ public class Sequence {
     }
     return diagrams;
   }
-}
 
-
-@RequiredArgsConstructor
-class SequenceExtractor {
-  private final String result;
-  private final Sequence seq;
-  private final String pack;
-  private final MethodDeclaration methodDeclaration;
-  private final TypeDeclaration<?> typeDeclaration;
-  private final String back;
-
-  private void lookupVar(MethodCallExpr mc, List<String> entities, List<String> sequences,
-      String retorno, String args, NameExpr name, List<VariableDeclarator> vds) {
-    Type type = null;
-    for (VariableDeclarator variableDeclarator : vds) {
-      if (variableDeclarator.getName().asString().equals(name.getName().asString())) {
-        type = variableDeclarator.getType();
-      }
+  private void clearEntities(List<String> entities, String name) {
+    String entity = "participant "+name+"";
+    if( entities.contains(entity) ) {
+      entities.remove(entity);
+      entities.add(entity);
     }
-    if (null == type) {
-      for (Parameter parameter : methodDeclaration.getParameters()) {
-        if (parameter.getName().asString().equals(name.getName().asString())) {
-          type = parameter.getType();
-        }
-      }
+  }
+  
+  private void scan(SecuenceDiagramInfo info) {
+    scan(null, null, info);
+  }
+  private void scan(TypeDeclaration<?> from, MethodCallExpr mc, SecuenceDiagramInfo info) {
+    if( null != from && null != mc ) {
+      info.setActivation(from.getNameAsString(), mc);
     }
-    if (null == type) {
-      for (FieldDeclaration fieldDeclaration : typeDeclaration.getFields()) {
-        for (VariableDeclarator variableDeclarator : fieldDeclaration.getVariables()) {
-          if (variableDeclarator.getName().asString().equals(name.getName().asString())) {
-            type = variableDeclarator.getType();
-          }
-        }
-      }
-    }
-    CompilationUnit compilationUnit = seq.units.get(pack);
-    String fullType =
-        compilationUnit.getPackageDeclaration().map(pkg -> pkg.getNameAsString() + ".").orElse("")
-            + type.asString();
-    for (ImportDeclaration importDeclaration : compilationUnit.getImports()) {
-      if (importDeclaration.toString().endsWith("." + type.asString() + ";")) {
-        fullType = importDeclaration.getNameAsString();
-      }
-    }
-    if (seq.types.containsKey(fullType)) {
-      TypeDeclaration<?> ref = seq.types.get(fullType);
-      for (MethodDeclaration methodDeclaration2 : ref.getMethods()) {
-        if (methodDeclaration2.getNameAsString().equals(mc.getNameAsString())) {
-          String refName = fullType;
-          String refType = ref.getNameAsString();
-          methodDeclaration2.getBody().ifPresent(body -> {
-            SequenceExtractor linked = new SequenceExtractor(retorno.equals("") ? "result" : retorno, seq, refName, methodDeclaration2, ref,
-                typeDeclaration.getNameAsString());
-            String entity = "participant " + refType + "\n";
-            if (!entities.contains(entity)) {
-              entities.add(entity);
-            }
-            sequences.add("" + typeDeclaration.getNameAsString() + " -> " + refType + " : "
-                + mc.getNameAsString() + args + "\n");
-            linked.addStatements(body.getStatements(), entities, sequences);
-//            if (!retorno.equals("")) {
-//              sequences.add("" + refType + " --> " + typeDeclaration.getNameAsString() + " : "
-//                  + retorno + "\n");
-//            }
-          });
-        }
-      }
+    Optional<BlockStmt> bodyStmt = info.getMethodDeclaration().getBody();
+    bodyStmt.ifPresent(body -> addStatements(body.getStatements(), info));
+    if( bodyStmt.isEmpty() ) {
+      info.addReturnCallback();
     }
   }
 
-  private void addExpression(Expression exp, List<String> entities, List<String> sequences,
-      String retorno, List<VariableDeclarator> vds) {
+  /* default */ void addExpression(Expression exp, String retorno, SecuenceDiagramInfo info) {
     if (exp instanceof MethodCallExpr) {
       MethodCallExpr mc = (MethodCallExpr) exp;
-      Optional<Expression> scope = mc.getScope();
-      String args = args(mc);
-      if (scope.isPresent()) {
-        Expression expression = scope.get();
-        if (expression instanceof NameExpr) {
-          NameExpr name = (NameExpr) expression;
-          lookupVar(mc, entities, sequences, retorno, args, name, vds);
-        } else {
-          String of = expression.toString();
-          String entity = "participant " + of + "\n";
-          if (!entities.contains(entity)) {
-            entities.add(entity);
-          }
-          sequences.add("" + typeDeclaration.getNameAsString() + " -> " + of + " : "
-              + mc.getNameAsString() + args + "\n");
-          if (!retorno.equals("")) {
-            sequences.add(
-                "" + of + " --> " + typeDeclaration.getNameAsString() + " : " + retorno + "\n");
-          }
-        }
-      } else {
-        sequences.add("" + typeDeclaration.getNameAsString() + " -> "
-            + typeDeclaration.getNameAsString() + " : "
-            + (retorno.equals("") ? "" : retorno + " = ") + mc.getNameAsString() + args + "\n");
+      if( mc.toString().equals("domainQuery.setActor(actor)") ) {
+        System.out.println( mc );
       }
+      info.lookup(mc, retorno).ifPresentOrElse(seq -> {
+        if( seq.getMethodDeclaration() == info.getMethodDeclaration() ) {
+          // TODO: add note of recursión
+        } else {
+          seq.addStep("group#Gold #LightBlue " + mc.getNameAsString() + "");
+          scan(info.getTypeDeclaration(), mc, seq.descentJustified(retorno));
+          seq.addStep("end");
+        }
+      }, () -> {
+          boolean handled = false;
+          for(CodeSpecificCallback spe: specificators) {
+            if( spe.canHandle(mc) ) {
+              spe.handle( mc );
+              handled = true;
+            }
+          }
+          if( !handled && mc.getScope().isEmpty() ) {
+            info.addSelfCallback(mc);
+          }
+      });
     } else if (exp instanceof AssignExpr) {
       AssignExpr assign = (AssignExpr) exp;
-      addExpression(assign.getValue(), entities, sequences, assign.getTarget().toString(), vds);
+      addExpression(assign.getValue(), assign.getTarget().toString(), info);
     } else if (exp instanceof VariableDeclarationExpr) {
       VariableDeclarationExpr vd = (VariableDeclarationExpr) exp;
       for (VariableDeclarator variableDeclarator : vd.getVariables()) {
-        vds.add(variableDeclarator);
+        info.newContextVariable(variableDeclarator);
         variableDeclarator.getInitializer().ifPresent(init -> {
-          addExpression(init, entities, sequences, variableDeclarator.getNameAsString(), vds);
+          addExpression(init, variableDeclarator.getNameAsString(), info);
         });
       }
+    } else if ( exp instanceof NameExpr ) {
+      // Un nombre suelto no aporta nada
     } else {
-      sequences
-          .add("" + typeDeclaration.getNameAsString() + " -> " + typeDeclaration.getNameAsString()
-              + (retorno.equals("") ? "" : " : " + retorno + " = ") + exp + "\n");
-      // System.out.println("No se con " + exp.getClass( ));
+      info.addSelfCallback(exp.toString(), retorno);
     }
   }
 
-  private void addIfStatement(IfStmt theIf, List<String> entities, List<String> sequences,
-      List<VariableDeclarator> scope) {
-    addStatement(theIf.getThenStmt(), entities, sequences, scope);
+  private void addIfStatement(IfStmt theIf, SecuenceDiagramInfo info) {
+    addStatement(theIf.getThenStmt(), info);
     theIf.getElseStmt().ifPresent(theElse -> {
       if (theElse instanceof IfStmt) {
         IfStmt inner = (IfStmt) theElse;
-        sequences.add("else " + inner.getCondition() + "\n");
-        addIfStatement(inner, entities, sequences, scope);
+        info.addStep("else " + inner.getCondition());
+        addIfStatement(inner, info.descentJustified());
       } else {
-        sequences.add("else\n");
-        addStatement(theElse, entities, sequences, scope);
+        info.addStep("else");
+        addStatement(theElse, info.descentJustified());
       }
     });
   }
 
-  /* default */ void addStatements(NodeList<Statement> mc, List<String> entities,
-      List<String> sequences) {
-    addStatements(mc, entities, sequences, new ArrayList<>());
+  private void addStatements(NodeList<Statement> mc, SecuenceDiagramInfo info) {
+    for (Statement statement : mc) {
+      addStatement(statement, info);
+    }
   }
 
-  /* default */ void addStatements(NodeList<Statement> mc, List<String> entities,
-      List<String> sequences, List<VariableDeclarator> vds) {
-    for (Statement statement : mc) {
-      addStatement(statement, entities, sequences, vds);
+  private void addStatement(Statement mc, SecuenceDiagramInfo info) {
+    if( mc.toString().equals("domainQuery.setActor(actor)") ) {
+      System.out.println( mc );
     }
 
-  }
-
-  /* default */ void addStatement(Statement mc, List<String> entities, List<String> sequences,
-      List<VariableDeclarator> vds) {
     if (mc instanceof IfStmt) {
       IfStmt theIf = (IfStmt) mc;
-      sequences.add("alt " + theIf.getCondition() + "\n");
-      addIfStatement(theIf, entities, sequences, new ArrayList<>(vds));
-      sequences.add("end\n");
+      info.addStep("alt " + theIf.getCondition());
+      addIfStatement(theIf, info.descentJustified());
+      info.addStep("end");
     } else if (mc instanceof ForeachStmt) {
       ForeachStmt fs = (ForeachStmt) mc;
       VariableDeclarator var = fs.getVariable().getVariable(0);
-      List<VariableDeclarator> invds = new ArrayList<>(vds);
-      invds.add(var);
-      sequences.add("loop " + var.getNameAsString() + " = " + var.getInitializer() + "\n");
-      addStatement(fs.getBody(), entities, sequences, invds);
-      sequences.add("end\n");
+      SecuenceDiagramInfo descend = info.descentJustified();
+      descend.newContextVariable(var);
+      info.addStep("loop " + var.getNameAsString() + " = " + var.getInitializer());
+      addStatement(fs.getBody(), descend);
+      info.addStep("end");
     } else if (mc instanceof ForStmt) {
       ForStmt fs = (ForStmt) mc;
-      sequences.add("loop " + fs.getCompare() + "\n");
-      addStatement(fs.getBody(), entities, sequences, new ArrayList<>(vds));
-      sequences.add("end\n");
+      info.addStep("loop " + fs.getCompare());
+      addStatement(fs.getBody(), info.descentJustified());
+      info.addStep("end");
     } else if (mc instanceof WhileStmt) {
       WhileStmt fs = (WhileStmt) mc;
-      sequences.add("loop " + fs.getCondition() + "\n");
-      addStatement(fs.getBody(), entities, sequences, new ArrayList<>(vds));
-      sequences.add("end\n");
+      info.addStep("loop " + fs.getCondition());
+      addStatement(fs.getBody(), info.descentJustified());
+      info.addStep("end");
     } else if (mc instanceof DoStmt) {
       DoStmt fs = (DoStmt) mc;
-      sequences.add("loop " + fs.getCondition() + "\n");
-      addStatement(fs.getBody(), entities, sequences, new ArrayList<>(vds));
-      sequences.add("end\n");
+      info.addStep("loop " + fs.getCondition());
+      addStatement(fs.getBody(), info.descentJustified());
+      info.addStep("end");
     } else if (mc instanceof SwitchStmt) {
       SwitchStmt sw = (SwitchStmt) mc;
       boolean first = true;
       for (SwitchEntryStmt switchEntryStmt : sw.getEntries()) {
         if (first) {
-          sequences.add("alt " + switchEntryStmt.getLabel() + "\n");
+          info.addStep("alt " + switchEntryStmt.getLabel());
         } else {
-          sequences
-              .add("else " + switchEntryStmt.getLabel().map(lb -> lb.toString()).orElse("") + "\n");
+          info.addStep("else " + switchEntryStmt.getLabel().map(lb -> lb.toString()).orElse(""));
         }
-        ArrayList<VariableDeclarator> inVds = new ArrayList<>(vds);
-        for (Statement statement : switchEntryStmt.getStatements()) {
-          addStatement(statement, entities, sequences, inVds);
-        }
-        sequences.add("end\n");
+        addStatements(switchEntryStmt.getStatements(), info.descentJustified());
+        info.addStep("end");
       }
     } else if (mc instanceof ReturnStmt) {
       ReturnStmt rs = (ReturnStmt) mc;
       rs.getExpression().ifPresent(exp -> {
-        addExpression(exp, entities, sequences, result, vds);
+        addExpression(exp, info.getResult(), info);
       });
-      sequences.add(typeDeclaration.getNameAsString() + " --> " + back + ": "+ result +"\n");
+      info.addReturnCallback();
     } else if (mc instanceof BlockStmt) {
       BlockStmt block = (BlockStmt) mc;
-      ArrayList<VariableDeclarator> inVds = new ArrayList<>(vds);
-      for (Statement statement : block.getStatements()) {
-        addStatement(statement, entities, sequences, inVds);
-      }
+      addStatements(block.getStatements(), info.descendInline());
     } else if (mc instanceof ExpressionStmt) {
       ExpressionStmt exp = (ExpressionStmt) mc;
-      addExpression(exp.getExpression(), entities, sequences, "", vds);
+      addExpression(exp.getExpression(), "", info);
     } else if (mc instanceof BreakStmt) {
-      sequences.add(typeDeclaration.getNameAsString() + " --> " + typeDeclaration.getNameAsString()
-          + ": break\n");
+      info.addSelfCallback("break");
+    } else if (mc instanceof TryStmt ) {
+      TryStmt tr = (TryStmt)mc;
+      info.addStep("group try");
+      SecuenceDiagramInfo tryContext = info.tryContext();
+      for (Expression node : tr.getResources()) {
+        addExpression(node, "", tryContext);
+      }
+      addStatements(tr.getTryBlock().getStatements(), tryContext);
+      for (CatchClause catchClause : tr.getCatchClauses()) {
+        info.addStep("else " + catchClause.getParameter()  );
+        addStatements(catchClause.getBody().getStatements(), info.descentJustified());
+      }
+      tr.getFinallyBlock().ifPresent( fb -> {
+        info.addStep("finally");
+        addStatements(fb.getStatements(), info.descentJustified());
+      });
+      info.addStep("end");
+    } else if (mc instanceof ThrowStmt) {
+      ThrowStmt th = (ThrowStmt)mc;
+      info.addStep("group#Gold #Pink throws");
+      boolean handled = false;
+      for (SecuenceDiagramInfo step : info.getStack()) {
+        if( step.isHandleCatch() ) {
+          info.addStep( info.getTypeDeclaration().getNameAsString() + " --> " + step.getTypeDeclaration().getNameAsString() + " : " + th.toThrowStmt().map(Object::toString).orElse("throw")  );
+          handled = true;
+          break;
+        }
+      }
+      if( !handled ) {
+        info.addStep( info.getTypeDeclaration().getNameAsString() + " --> Start !!: " + th.toThrowStmt().map(Object::toString).orElse("throw") );
+      }
+      info.addStep("end");
+      // info.add
     } else {
       System.out.println("Tengo a " + mc.getClass() + ": " + mc);
     }
-  }
-
-  private String args(MethodCallExpr mc) {
-    String args = mc.getArguments().toString();
-    return "(" + (args.length() > 10 ? args.substring(0, 7) + "..." : args) + ")";
   }
 }

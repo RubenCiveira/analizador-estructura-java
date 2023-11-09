@@ -23,9 +23,13 @@ public class Main {
     // /Users/ruben.civeiraiglesia/Documents/Proyectos/i+d/generado
     // /Users/ruben.civeiraiglesia/eclipse-workspace/rata
     Builder build = new Builder();
+//    build.build("test", "pruebas",
+//        new File("/Users/ruben.civeiraiglesia/eclipse-workspace/rata/src"),
+//        new File("/Users/ruben.civeiraiglesia/Documents/Proyectos/i+d/generado"));
     build.build("test", "pruebas",
-        new File("/Users/ruben.civeiraiglesia/eclipse-workspace/rata/src"),
+        new File("/Users/ruben.civeiraiglesia/Documents/Proyectos/i+d/typology/typology-back"),
         new File("/Users/ruben.civeiraiglesia/Documents/Proyectos/i+d/generado"));
+
   }
 
   public static List<Diagram> ddbb() {
