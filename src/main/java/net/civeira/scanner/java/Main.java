@@ -4,9 +4,11 @@ import java.io.File;
 import java.io.IOException;
 import java.util.List;
 import net.civeira.scanner.java.adoc.Builder;
-import net.civeira.scanner.java.kroki.InputType;
-import net.civeira.scanner.java.kroki.KrokiPainter;
-import net.civeira.scanner.java.kroki.OutputFormat;
+import net.civeira.scanner.java.dbscanner.DbScanner;
+import net.civeira.scanner.java.diagram.Diagram;
+import net.civeira.scanner.java.diagram.InputType;
+import net.civeira.scanner.java.diagram.KrokiPainter;
+import net.civeira.scanner.java.diagram.OutputFormat;
 
 public class Main {
   public static void main(String[] args) throws Exception {

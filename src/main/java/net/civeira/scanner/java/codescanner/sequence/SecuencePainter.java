@@ -1,17 +1,11 @@
-package net.civeira.scanner.java.diagrams;
+package net.civeira.scanner.java.codescanner.sequence;
 
 import java.io.File;
-import java.io.IOException;
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Optional;
-import com.github.javaparser.JavaParser;
-import com.github.javaparser.ast.CompilationUnit;
 import com.github.javaparser.ast.NodeList;
-import com.github.javaparser.ast.body.BodyDeclaration;
 import com.github.javaparser.ast.body.MethodDeclaration;
 import com.github.javaparser.ast.body.TypeDeclaration;
 import com.github.javaparser.ast.body.VariableDeclarator;
@@ -35,49 +29,29 @@ import com.github.javaparser.ast.stmt.SwitchStmt;
 import com.github.javaparser.ast.stmt.ThrowStmt;
 import com.github.javaparser.ast.stmt.TryStmt;
 import com.github.javaparser.ast.stmt.WhileStmt;
-import net.civeira.scanner.java.LocalDiagram;
-import net.civeira.scanner.java.diagrams.coders.StreamCoderCallback;
-import net.civeira.scanner.java.diagrams.searchers.QuarkusAppTypeSearchers;
-import net.civeira.scanner.java.diagrams.searchers.SqlTypeSearchers;
-import net.civeira.scanner.java.kroki.InputType;
+import net.civeira.scanner.java.Project;
+import net.civeira.scanner.java.codescanner.sequence.coders.StreamCoderCallback;
+import net.civeira.scanner.java.codescanner.sequence.searchers.QuarkusAppTypeSearchers;
+import net.civeira.scanner.java.codescanner.sequence.searchers.SqlTypeSearchers;
+import net.civeira.scanner.java.diagram.InputType;
+import net.civeira.scanner.java.diagram.LocalDiagram;
 
-public class Sequence {
+public class SecuencePainter {
   private static final int DEEP = 1;
+  public final Project project;
   public List<TypeSearchCallback> searchers = new ArrayList<>();
   public List<CodeSpecificCallback> specificators = new ArrayList<>();
-  public Map<String, TypeDeclaration<?>> types = new HashMap<>();
-  public Map<String, String> files = new HashMap<>();
-  public Map<String, CompilationUnit> units = new HashMap<>();
 
-  public Sequence() {
+  public SecuencePainter(Project project) {
+    this.project = project;
     searchers.add(new SqlTypeSearchers());
-    searchers.add(new QuarkusAppTypeSearchers(this));
+    searchers.add(new QuarkusAppTypeSearchers(project));
     specificators.add(new StreamCoderCallback());
   }
-  
-  public void scan(File java) throws IOException {
-    CompilationUnit cu = JavaParser.parse(java);
-    String pack = cu.getPackageDeclaration().map(pck -> pck.getNameAsString() + ".").orElse("");
-    for (TypeDeclaration<?> typeDeclaration : cu.getTypes()) {
-      addType(cu, pack, typeDeclaration);
-    }
-  }
-  
-  private void addType(CompilationUnit cu, String pack, TypeDeclaration<?> typeDeclaration) {
-    String name = pack + typeDeclaration.getNameAsString();
-    types.put(name, typeDeclaration);
-    files.put(name, pack.replace(".", "/"));
-    units.put(name, cu);
-    for (BodyDeclaration<?> bodyDeclaration : typeDeclaration.getMembers()) {
-      if( bodyDeclaration instanceof TypeDeclaration ) {
-        addType(cu, name, (TypeDeclaration<?>)bodyDeclaration);
-      }
-    }
-  }
 
-  public List<LocalDiagram> generateSequences(File base) {
+  public List<LocalDiagram> generateSequencesDia(File base) {
     List<LocalDiagram> diagrams = new ArrayList<>();
-    for (Entry<String, TypeDeclaration<?>> entry : types.entrySet()) {
+    for (Entry<String, TypeDeclaration<?>> entry : this.project.types.entrySet()) {
       TypeDeclaration<?> typeDeclaration = entry.getValue();
       for (MethodDeclaration methodDeclaration : typeDeclaration.getMethods()) {
         methodDeclaration.getBody().ifPresent(body -> {
@@ -105,7 +79,7 @@ public class Sequence {
               LocalDiagram dg =
                   new LocalDiagram(InputType.PLANTUML, methodDeclaration.getNameAsString(),
                       new File(base,
-                          files.get(entry.getKey()) + "/" + typeDeclaration.getNameAsString() + "_"
+                          this.project.files.get(entry.getKey()) + "/" + typeDeclaration.getNameAsString() + "_"
                               + methodDeclaration.getNameAsString() + ".puml"));
               dg.setContent(txt);
               diagrams.add(dg);
@@ -142,9 +116,6 @@ public class Sequence {
   /* default */ void addExpression(Expression exp, String retorno, SecuenceDiagramInfo info) {
     if (exp instanceof MethodCallExpr) {
       MethodCallExpr mc = (MethodCallExpr) exp;
-      if( mc.toString().equals("domainQuery.setActor(actor)") ) {
-        System.out.println( mc );
-      }
       info.lookup(mc, retorno).ifPresentOrElse(seq -> {
         if( seq.getMethodDeclaration() == info.getMethodDeclaration() ) {
           // TODO: add note of recursión
@@ -204,10 +175,6 @@ public class Sequence {
   }
 
   private void addStatement(Statement mc, SecuenceDiagramInfo info) {
-    if( mc.toString().equals("domainQuery.setActor(actor)") ) {
-      System.out.println( mc );
-    }
-
     if (mc instanceof IfStmt) {
       IfStmt theIf = (IfStmt) mc;
       info.addStep("alt " + theIf.getCondition());
@@ -294,9 +261,9 @@ public class Sequence {
         info.addStep( info.getTypeDeclaration().getNameAsString() + " --> Start !!: " + th.toThrowStmt().map(Object::toString).orElse("throw") );
       }
       info.addStep("end");
-      // info.add
     } else {
-      System.out.println("Tengo a " + mc.getClass() + ": " + mc);
+      // FIXME: ver que hacer
+      // System.out.println("Tengo a " + mc.getClass() + ": " + mc);
     }
   }
 }

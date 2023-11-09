@@ -1,4 +1,4 @@
-package net.civeira.scanner.java.kroki;
+package net.civeira.scanner.java.diagram;
 
 public enum OutputFormat {
   PNG("png");

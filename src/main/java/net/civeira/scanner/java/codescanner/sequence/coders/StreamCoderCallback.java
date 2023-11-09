@@ -1,7 +1,7 @@
-package net.civeira.scanner.java.diagrams.coders;
+package net.civeira.scanner.java.codescanner.sequence.coders;
 
 import com.github.javaparser.ast.expr.MethodCallExpr;
-import net.civeira.scanner.java.diagrams.CodeSpecificCallback;
+import net.civeira.scanner.java.codescanner.sequence.CodeSpecificCallback;
 
 public class StreamCoderCallback implements CodeSpecificCallback {
 

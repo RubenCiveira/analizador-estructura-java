@@ -4,8 +4,10 @@ import java.io.File;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
-import net.civeira.scanner.java.LocalDiagram;
-import net.civeira.scanner.java.diagrams.Sequence;
+import net.civeira.scanner.java.Project;
+import net.civeira.scanner.java.codescanner.classes.ClassesPainter;
+import net.civeira.scanner.java.codescanner.sequence.SecuencePainter;
+import net.civeira.scanner.java.diagram.LocalDiagram;
 
 public class Builder {
 
@@ -15,21 +17,29 @@ public class Builder {
 
   public void build(String group, String id, File input, File output) throws IOException {
     maven(group, id, output);
-    Sequence seq = new Sequence();
+    Project seq = new Project();
+    SecuencePainter painter = new SecuencePainter(seq);
+    ClassesPainter cpainter = new ClassesPainter(seq);
     scan(seq, input, new File(output, "src/main/docs/java"));
-    for (LocalDiagram diagram : seq.generateSequences( new File(output, "src/main/docs/diagrams") )) {
+    for (LocalDiagram diagram : painter.generateSequencesDia( new File(output, "src/main/docs/diagrams/sequence") )) {
+      write(diagram.write(), diagram.getFile());
+    }
+    for (LocalDiagram diagram : cpainter.generatePackagesDia( new File(output, "src/main/docs/diagrams/packages") )) {
+      write(diagram.write(), diagram.getFile());
+    }
+    for (LocalDiagram diagram : cpainter.generateClassDia( new File(output, "src/main/docs/diagrams/classes") )) {
       write(diagram.write(), diagram.getFile());
     }
   }
 
-  private void scan(Sequence seq, File file, File content) {
+  private void scan(Project seq, File file, File content) {
     File[] javas = file.listFiles(filter -> {
       return filter.getName().endsWith(".java");
     });
     if (null != javas) {
       for (File java : javas) {
         try {
-          seq.scan(java);
+          seq.scanJava(java);
         } catch (Exception ex) {
           ex.printStackTrace();
         }

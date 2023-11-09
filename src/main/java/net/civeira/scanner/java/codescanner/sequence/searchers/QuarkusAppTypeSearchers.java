@@ -1,16 +1,16 @@
-package net.civeira.scanner.java.diagrams.searchers;
+package net.civeira.scanner.java.codescanner.sequence.searchers;
 
 import java.util.Optional;
 import com.github.javaparser.ast.body.TypeDeclaration;
 import com.github.javaparser.ast.expr.MethodCallExpr;
 import lombok.RequiredArgsConstructor;
-import net.civeira.scanner.java.diagrams.SecuenceDiagramInfo;
-import net.civeira.scanner.java.diagrams.Sequence;
-import net.civeira.scanner.java.diagrams.TypeSearchCallback;
+import net.civeira.scanner.java.Project;
+import net.civeira.scanner.java.codescanner.sequence.SecuenceDiagramInfo;
+import net.civeira.scanner.java.codescanner.sequence.TypeSearchCallback;
 
 @RequiredArgsConstructor
 public class QuarkusAppTypeSearchers implements TypeSearchCallback {
-  private final Sequence sequence;
+  private final Project sequence;
 
   @Override
   public boolean canHandle(String fullType) {

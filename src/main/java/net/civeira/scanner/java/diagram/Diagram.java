@@ -1,8 +1,7 @@
-package net.civeira.scanner.java;
+package net.civeira.scanner.java.diagram;
 
 import lombok.Getter;
 import lombok.RequiredArgsConstructor;
-import net.civeira.scanner.java.kroki.InputType;
 
 @RequiredArgsConstructor
 public class Diagram {

@@ -1,4 +1,4 @@
-package net.civeira.scanner.java.diagrams;
+package net.civeira.scanner.java.codescanner.sequence;
 
 import com.github.javaparser.ast.body.MethodDeclaration;
 import com.github.javaparser.ast.body.TypeDeclaration;

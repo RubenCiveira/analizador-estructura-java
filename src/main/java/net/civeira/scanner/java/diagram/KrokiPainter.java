@@ -1,4 +1,4 @@
-package net.civeira.scanner.java.kroki;
+package net.civeira.scanner.java.diagram;
 
 import java.io.File;
 import java.io.FileOutputStream;
@@ -7,7 +7,6 @@ import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
-import net.civeira.scanner.java.Diagram;
 
 public class KrokiPainter {
   private static final String URL = "https://kroki.io/";

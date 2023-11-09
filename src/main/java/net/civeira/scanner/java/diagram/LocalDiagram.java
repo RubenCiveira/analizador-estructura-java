@@ -1,8 +1,7 @@
-package net.civeira.scanner.java;
+package net.civeira.scanner.java.diagram;
 
 import java.io.File;
 import lombok.Getter;
-import net.civeira.scanner.java.kroki.InputType;
 
 public class LocalDiagram extends Diagram {
 

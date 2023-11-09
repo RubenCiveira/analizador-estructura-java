@@ -1,11 +1,8 @@
-package net.civeira.scanner.java.diagrams;
+package net.civeira.scanner.java.codescanner.sequence;
 
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
-import com.github.javaparser.ast.CompilationUnit;
-import com.github.javaparser.ast.ImportDeclaration;
-import com.github.javaparser.ast.Node;
 import com.github.javaparser.ast.body.ClassOrInterfaceDeclaration;
 import com.github.javaparser.ast.body.FieldDeclaration;
 import com.github.javaparser.ast.body.MethodDeclaration;
@@ -28,7 +25,7 @@ public class SecuenceDiagramInfo {
   private final List<VariableDeclarator> vds;
   @Getter
   private final String result;
-  private final Sequence seq;
+  private final SecuencePainter seq;
   private final String pack;
   @Getter
   private final MethodDeclaration methodDeclaration;
@@ -41,7 +38,7 @@ public class SecuenceDiagramInfo {
   private final boolean handleCatch;
 
   public SecuenceDiagramInfo(List<SecuenceDiagramInfo> stack, List<String> entities,
-      List<String> sequences, List<VariableDeclarator> vds, String result, Sequence seq,
+      List<String> sequences, List<VariableDeclarator> vds, String result, SecuencePainter seq,
       String pack, MethodDeclaration methodDeclaration, TypeDeclaration<?> typeDeclaration,
       String back, String tabs, int deep, boolean handleCatch) {
     super();
@@ -222,16 +219,22 @@ public class SecuenceDiagramInfo {
       type = type.substring(0, index);
     }
     Optional<SecuenceDiagramInfo> result = Optional.empty();
-    CompilationUnit compilationUnit = thisCompilationUnit();
-    String fullType = type.substring(0, 1).toLowerCase().equals(type.subSequence(0, 1)) ? type
-        : compilationUnit.getPackageDeclaration().map(pkg -> pkg.getNameAsString() + ".").orElse("")
-            + type;
-    for (ImportDeclaration importDeclaration : compilationUnit.getImports()) {
-      if (importDeclaration.getNameAsString().endsWith("." + type + "")) {
-        fullType = importDeclaration.getNameAsString();
-        break;
-      }
-    }
+    String fullType = seq.project.typeName(type, typeDeclaration);
+//    CompilationUnit compilationUnit = thisCompilationUnit();
+//    String fullType = type.substring(0, 1).toLowerCase().equals(type.subSequence(0, 1)) ? type
+//        : compilationUnit.getPackageDeclaration().map(pkg -> pkg.getNameAsString() + ".").orElse("")
+//            + type;
+//    for (ImportDeclaration importDeclaration : compilationUnit.getImports()) {
+//      if (importDeclaration.getNameAsString().endsWith("." + type + "")) {
+//        fullType = importDeclaration.getNameAsString();
+//        break;
+//      }
+//    }
+//    if( !mfullType.equals(fullType) ) {
+//      System.err.println("NOOOOOOO: ");
+//      System.out.println( fullType );
+//      System.out.println( mfullType );
+//    }
     boolean handled = false;
     for (TypeSearchCallback searcher : seq.searchers) {
       if (searcher.canHandle(fullType)) {
@@ -242,31 +245,26 @@ public class SecuenceDiagramInfo {
       }
     }
     if (!handled) {
-      if (seq.types.containsKey(fullType)) {
-        TypeDeclaration<?> td = seq.types.get(fullType);
+      Optional<TypeDeclaration<?>> otd = seq.project.type(fullType);
+      if (otd.isPresent()) {
+        TypeDeclaration<?> td = otd.get();
         addEntity( entityType(td), type);
         result = jumpTo(td, mc);
         if( result.isEmpty() ) {
           // TODO: el metodo no existe, seguramente lombok o similar.
           addCallback(type, mc);
         }
-      } else { 
+      } else {
+        // FIXME: hay que ver las clases.
         System.err.println("No encuentro a " + fullType);
       }
     }
     return result;
   }
 
-  private CompilationUnit thisCompilationUnit() {
-    Node currentNode = typeDeclaration;
-    Optional<Node> parentNode = typeDeclaration.getParentNode();
-    while (parentNode.isPresent()) {
-      currentNode = parentNode.get();
-      parentNode = currentNode.getParentNode();
-    }
-    return (CompilationUnit) currentNode;
-
-  }
+//  private CompilationUnit thisCompilationUnit() {
+//    return seq.project.compilationUnit(typeDeclaration);
+//  }
 
   private Optional<SecuenceDiagramInfo> jumpTo(MethodCallExpr mc) {
     return jumpTo(typeDeclaration, mc);

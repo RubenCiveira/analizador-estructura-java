@@ -1,10 +1,11 @@
-package net.civeira.scanner.java;
+package net.civeira.scanner.java.dbscanner;
 
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
 import java.util.logging.Level;
-import net.civeira.scanner.java.kroki.InputType;
+import net.civeira.scanner.java.diagram.Diagram;
+import net.civeira.scanner.java.diagram.InputType;
 import schemacrawler.schema.Catalog;
 import schemacrawler.schema.Column;
 import schemacrawler.schema.Schema;
