@@ -68,16 +68,14 @@ public class ClassDiagramInfo {
       name = ((ClassOrInterfaceDeclaration) typeDeclaration).getNameAsString();
     } else if (typeDeclaration instanceof NodeWithName) {
       name = ((NodeWithName<?>) typeDeclaration).getNameAsString();
+    } else if(typeDeclaration instanceof TypeDeclaration) {
+      name = ((TypeDeclaration<?>)typeDeclaration).getNameAsString();
     } else {
       name = typeDeclaration.toString();
     }
-    boolean debug = name.equals("TypologyDtoMapper");
     String fname = lpack + "." + name;
     if( painted.contains(fname) ) {
       return;
-    }
-    if( debug ) {
-      System.out.println("look en " + lpack);
     }
     painted.add( fname );
     if (typeDeclaration instanceof BodyDeclaration) {

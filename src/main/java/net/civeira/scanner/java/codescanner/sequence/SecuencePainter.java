@@ -13,6 +13,7 @@ import com.github.javaparser.ast.expr.AssignExpr;
 import com.github.javaparser.ast.expr.Expression;
 import com.github.javaparser.ast.expr.MethodCallExpr;
 import com.github.javaparser.ast.expr.NameExpr;
+import com.github.javaparser.ast.expr.ObjectCreationExpr;
 import com.github.javaparser.ast.expr.VariableDeclarationExpr;
 import com.github.javaparser.ast.stmt.BlockStmt;
 import com.github.javaparser.ast.stmt.BreakStmt;
@@ -102,21 +103,25 @@ public class SecuencePainter {
   private void scan(SecuenceDiagramInfo info) {
     scan(null, null, info);
   }
-  private void scan(TypeDeclaration<?> from, MethodCallExpr mc, SecuenceDiagramInfo info) {
+  /* default */ void scan(TypeDeclaration<?> from, MethodCallExpr mc, SecuenceDiagramInfo info) {
     if( null != from && null != mc ) {
       info.setActivation(from.getNameAsString(), mc);
     }
     Optional<BlockStmt> bodyStmt = info.getMethodDeclaration().getBody();
     bodyStmt.ifPresent(body -> addStatements(body.getStatements(), info));
-    if( bodyStmt.isEmpty() ) {
+    if( !bodyStmt.isPresent() ) {
       info.addReturnCallback();
     }
   }
 
   /* default */ void addExpression(Expression exp, String retorno, SecuenceDiagramInfo info) {
-    if (exp instanceof MethodCallExpr) {
+    if (exp instanceof ObjectCreationExpr) {
+      info.addSelfCallback( retorno + " = " + exp.toString() );
+    } else if (exp instanceof MethodCallExpr) {
       MethodCallExpr mc = (MethodCallExpr) exp;
-      info.lookup(mc, retorno).ifPresentOrElse(seq -> {
+      Optional<SecuenceDiagramInfo> lookup = info.lookup(mc, retorno);
+      if( lookup.isPresent() ) {
+        SecuenceDiagramInfo seq = lookup.get();
         if( seq.getMethodDeclaration() == info.getMethodDeclaration() ) {
           // TODO: add note of recursión
         } else {
@@ -124,7 +129,7 @@ public class SecuencePainter {
           scan(info.getTypeDeclaration(), mc, seq.descentJustified(retorno));
           seq.addStep("end");
         }
-      }, () -> {
+      } else {
           boolean handled = false;
           for(CodeSpecificCallback spe: specificators) {
             if( spe.canHandle(mc) ) {
@@ -132,10 +137,10 @@ public class SecuencePainter {
               handled = true;
             }
           }
-          if( !handled && mc.getScope().isEmpty() ) {
+          if( !handled && !mc.getScope().isPresent() ) {
             info.addSelfCallback(mc);
           }
-      });
+      }
     } else if (exp instanceof AssignExpr) {
       AssignExpr assign = (AssignExpr) exp;
       addExpression(assign.getValue(), assign.getTarget().toString(), info);
@@ -258,12 +263,17 @@ public class SecuencePainter {
         }
       }
       if( !handled ) {
-        info.addStep( info.getTypeDeclaration().getNameAsString() + " --> Start !!: " + th.toThrowStmt().map(Object::toString).orElse("throw") );
+        info.addStep( info.getTypeDeclaration().getNameAsString() + " --> Start !!: " + label( th.toThrowStmt().map(Object::toString).orElse("throw") ) );
       }
       info.addStep("end");
     } else {
       // FIXME: ver que hacer
       // System.out.println("Tengo a " + mc.getClass() + ": " + mc);
     }
+  }
+  
+  private String label(String str) {
+    int limit = 30;
+    return  str.length() > limit ? str.substring(0, limit - 3) + "..." : str;
   }
 }

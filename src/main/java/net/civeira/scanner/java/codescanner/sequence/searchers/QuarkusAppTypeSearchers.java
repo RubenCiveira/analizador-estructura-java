@@ -26,8 +26,8 @@ public class QuarkusAppTypeSearchers implements TypeSearchCallback {
     Optional<TypeDeclaration<?>> response = Optional.empty();
     if ( fullType.endsWith(".RestContextService") && "getCurrentActorRequest".equals(mc.getNameAsString()) ) {
       secuenceDiagramInfo.addParticipant("RestContextService");
-      secuenceDiagramInfo.addCallback("RestContextService", "getCurrentActorRequest");
-      secuenceDiagramInfo.addStep("RestContextService -> RestContextService : buildActor");
+      secuenceDiagramInfo.addCallback("RestContextService", "getCurrentActorRequest(headers, request)");
+      secuenceDiagramInfo.addStep("ref over RestContextService\n    buildActor\nend ref");
       secuenceDiagramInfo.addIncomeReturn("RestContextService", "actor");
     } else {
       response = Optional.ofNullable( sequence.types.get(fullType) );
