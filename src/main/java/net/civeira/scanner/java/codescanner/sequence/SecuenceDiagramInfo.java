@@ -12,7 +12,9 @@ import com.github.javaparser.ast.body.VariableDeclarator;
 import com.github.javaparser.ast.expr.CastExpr;
 import com.github.javaparser.ast.expr.EnclosedExpr;
 import com.github.javaparser.ast.expr.Expression;
+import com.github.javaparser.ast.expr.LambdaExpr;
 import com.github.javaparser.ast.expr.MethodCallExpr;
+import com.github.javaparser.ast.expr.MethodReferenceExpr;
 import com.github.javaparser.ast.expr.NameExpr;
 import com.github.javaparser.ast.type.Type;
 import lombok.Getter;
@@ -82,7 +84,9 @@ public class SecuenceDiagramInfo {
   }
 
   public void addSelfCallback(MethodCallExpr mc, String back) {
-    addSelfCallback(methodCall(mc), back);
+    if( !isForLambda(mc) ) {
+      addSelfCallback(methodCall(mc), back);
+    }
   }
 
   public void addSelfCallback(String name, String back) {
@@ -91,8 +95,10 @@ public class SecuenceDiagramInfo {
   }
 
   public void setActivation(String from, MethodCallExpr mc) {
-    addStep(
+    if( !isForLambda(mc) ) {
+      addStep(
         from + " -> " + typeDeclaration.getNameAsString() + ": " + methodCall(mc) );
+    }
   }
 
   public void addIncomeReturn(String from, String name) {
@@ -108,7 +114,9 @@ public class SecuenceDiagramInfo {
   }
 
   public void addCallback(String to, MethodCallExpr mc, String back) {
-    addCallback(to, methodCall(mc), back);
+    if( !isForLambda(mc) ) {
+      addCallback(to, methodCall(mc), back);
+    }
   }
 
   public void addCallback(String to, String name, String back) {
@@ -150,6 +158,7 @@ public class SecuenceDiagramInfo {
   public Optional<SecuenceDiagramInfo> lookup(MethodCallExpr mc, String retorno) {
     return lookup(mc, retorno, true);
   }
+  
   public Optional<SecuenceDiagramInfo> lookup(MethodCallExpr mc, String retorno, boolean initial) {
     Optional<SecuenceDiagramInfo> result = Optional.empty();
     Optional<Expression> scope = mc.getScope();
@@ -157,7 +166,7 @@ public class SecuenceDiagramInfo {
       Expression expression = scope.get();
       result = lookupScope(mc, expression, retorno, initial);
     } else {
-      addSelfCallback(mc, retorno);
+      // addSelfCallback(mc, retorno);
       result = jumpTo(mc);
     }
     return result;
@@ -167,20 +176,22 @@ public class SecuenceDiagramInfo {
       String retorno, boolean initial) {
     Optional<SecuenceDiagramInfo> result = Optional.empty();
     if (expression instanceof NameExpr) {
-      result = lookup(mc, retorno, (NameExpr) expression);
+      result = lookupOnVariable(mc, retorno, ((NameExpr) expression).getNameAsString() );
     } else if (expression instanceof MethodCallExpr) {
       //  addSelfCallback(mc);
-      MethodCallExpr childMc = (MethodCallExpr)expression;
-      Optional<SecuenceDiagramInfo> lookup = lookup( childMc, retorno, false );
-      if( lookup.isPresent() ) {
-        addCallback( lookup.get().typeDeclaration.getNameAsString(), childMc, retorno);
-      } else {
-        if( initial ) {
-          // Si es la llamada inicial => resolvemos y pintamos
-          addSelfCallback( methodCall( childMc ) + "." + mc.getNameAsString() + args(mc)  );
+      if( !isForLambda( mc, initial ) ) {
+        MethodCallExpr childMc = (MethodCallExpr)expression;
+        Optional<SecuenceDiagramInfo> lookup = lookup( childMc, retorno, false );
+        if( lookup.isPresent() ) {
+          addCallback( lookup.get().typeDeclaration.getNameAsString(), childMc, retorno);
         } else {
-          // Si no es la llamada inicial => vamos resolviendo para facilitar los datos
-          methodCall( childMc );
+          if( initial ) {
+            // Si es la llamada inicial => resolvemos y pintamos
+            addSelfCallback( methodCall( childMc ) + "." + mc.getNameAsString() + args(mc)  );
+          } else {
+            // Si no es la llamada inicial => vamos resolviendo para facilitar los datos
+            methodCall( childMc );
+          }
         }
       }
     } else if (expression instanceof EnclosedExpr) {
@@ -197,18 +208,17 @@ public class SecuenceDiagramInfo {
     return result;
   }
 
-  private Optional<SecuenceDiagramInfo> lookup(MethodCallExpr mc, String retorno, NameExpr name) {
+  public String lookupForVariable(String name) {
+    if( name.equals("this") ) {
+      return this.typeDeclaration.getNameAsString();
+    }
     Type type = null;
-    String varName = typeName(name.getName().asString());
+    String varName = typeName(name);
     for (VariableDeclarator variableDeclarator : vds) {
       if (variableDeclarator.getName().asString().equals(varName)) {
         type = variableDeclarator.getType();
         break;
       }
-    }
-    boolean traze = name.getName().asString().equals("args[1]");
-    if( traze ) {
-      System.out.println("Tengo que pintar a " + name + " frente a " + varName );
     }
     if (null == type) {
       for (Parameter parameter : methodDeclaration.getParameters()) {
@@ -228,8 +238,60 @@ public class SecuenceDiagramInfo {
         }
       }
     }
-    return null != type ? lookupForType(mc, type.asString(), retorno)
-        : lookupForType(mc, varName, retorno);
+    String alias = null != type ? type.asString() : varName;
+    String fullType = seq.project.typeName(alias, typeDeclaration);
+    Optional<TypeDeclaration<?>> otd = seq.project.type(fullType);
+    if (otd.isPresent()) {
+      TypeDeclaration<?> td = otd.get();
+      addEntity( entityType(td), alias);
+    }
+    return alias;
+  }
+  
+  private Optional<SecuenceDiagramInfo> lookupOnVariable(MethodCallExpr mc, String retorno, String name) {
+    return lookupForType(mc, lookupForVariable(name), retorno);
+//    if( name.equals("this") ) {
+//      return Optional.of(this);
+//    }
+//    Type type = null;
+//    String varName = typeName(name);
+//    for (VariableDeclarator variableDeclarator : vds) {
+//      if (variableDeclarator.getName().asString().equals(varName)) {
+//        type = variableDeclarator.getType();
+//        break;
+//      }
+//    }
+//    if (null == type) {
+//      for (Parameter parameter : methodDeclaration.getParameters()) {
+//        if (parameter.getName().asString().equals(varName)) {
+//          type = parameter.getType();
+//          break;
+//        }
+//      }
+//    }
+//    if (null == type) {
+//      for (FieldDeclaration fieldDeclaration : typeDeclaration.getFields()) {
+//        for (VariableDeclarator variableDeclarator : fieldDeclaration.getVariables()) {
+//          if (variableDeclarator.getName().asString().equals(varName)) {
+//            type = variableDeclarator.getType();
+//            break;
+//          }
+//        }
+//      }
+//    }
+//    if( null == mc ) {
+//      String alias = null != type ? type.asString() : varName;
+//      String fullType = seq.project.typeName(alias, typeDeclaration);
+//      Optional<TypeDeclaration<?>> otd = seq.project.type(fullType);
+//      if (otd.isPresent()) {
+//        TypeDeclaration<?> td = otd.get();
+//        addEntity( entityType(td), alias);
+//      }
+//      return Optional.of( this );
+//    } else {
+//      return null != type ? lookupForType(mc, type.asString(), retorno)
+//        : lookupForType(mc, varName, retorno);
+//    }
   }
 
   private Optional<SecuenceDiagramInfo> lookupForType(MethodCallExpr mc, String baseType,
@@ -286,7 +348,28 @@ public class SecuenceDiagramInfo {
   }
 
   private String methodCall(MethodCallExpr mc) {
-    return mc.getScope().map(sc -> sc.toString() + ".").orElse(".") + mc.getNameAsString() + args(mc);
+    return mc.getScope().map(sc -> sc.toString() + ".").orElse("") + mc.getNameAsString() + args(mc);
+  }
+  
+    
+  private boolean isForLambda(MethodCallExpr mc) {
+    return isForLambda(mc, true);
+  }
+  private boolean isForLambda(MethodCallExpr mc, boolean initial) {
+    boolean use = false;
+    for (Expression expression : mc.getArguments()) {
+      if( expression instanceof LambdaExpr || expression instanceof MethodReferenceExpr) {
+        for (LambderResolver lambderResolver : seq.lamders) {
+          if( lambderResolver.canHandle(mc) ) {
+            use = true;
+          }
+        }
+      }
+    }
+    if( initial && use ) {
+      methodCall(mc);
+    }
+    return use;
   }
   
   private String args(MethodCallExpr mc) {
@@ -296,6 +379,17 @@ public class SecuenceDiagramInfo {
         String nn = callName( (MethodCallExpr)expression );
         seq.addExpression(expression, nn, this);
         args += ", " + nn;
+      } else if( expression instanceof LambdaExpr || expression instanceof MethodReferenceExpr) {
+        int limit = 30;
+        String str = expression.toString();
+        str = str.length() > limit ? str.substring(0, limit - 3) + "..." : str;
+        for (LambderResolver lambderResolver : seq.lamders) {
+          if( lambderResolver.canHandle(mc) ) {
+            str = lambderResolver.resolveAsVariable(mc, expression, seq, this);
+            break;
+          }
+        }
+        args  += ", " + str;
       } else {
         args += ", " + expression;
       }
@@ -318,7 +412,7 @@ public class SecuenceDiagramInfo {
       str = str.substring( chap );
     }
     int limit = 30;
-    return  str.length() > limit ? str.substring(0, limit - 3) + "..." : str;
+    return str.length() > limit ? str.substring(0, limit - 3) + "..." : str;
   }
   
   private String entityType(TypeDeclaration<?> td) {

@@ -32,6 +32,7 @@ import com.github.javaparser.ast.stmt.TryStmt;
 import com.github.javaparser.ast.stmt.WhileStmt;
 import net.civeira.scanner.java.Project;
 import net.civeira.scanner.java.codescanner.sequence.coders.StreamCoderCallback;
+import net.civeira.scanner.java.codescanner.sequence.lambders.GenericLambdaResolver;
 import net.civeira.scanner.java.codescanner.sequence.searchers.QuarkusAppTypeSearchers;
 import net.civeira.scanner.java.codescanner.sequence.searchers.SqlTypeSearchers;
 import net.civeira.scanner.java.diagram.InputType;
@@ -42,12 +43,14 @@ public class SecuencePainter {
   public final Project project;
   public List<TypeSearchCallback> searchers = new ArrayList<>();
   public List<CodeSpecificCallback> specificators = new ArrayList<>();
+  public List<LambderResolver> lamders = new ArrayList<>();
 
   public SecuencePainter(Project project) {
     this.project = project;
     searchers.add(new SqlTypeSearchers());
     searchers.add(new QuarkusAppTypeSearchers(project));
     specificators.add(new StreamCoderCallback());
+    lamders.add(new GenericLambdaResolver());
   }
 
   public List<LocalDiagram> generateSequencesDia(File base) {
@@ -103,7 +106,7 @@ public class SecuencePainter {
   private void scan(SecuenceDiagramInfo info) {
     scan(null, null, info);
   }
-  /* default */ void scan(TypeDeclaration<?> from, MethodCallExpr mc, SecuenceDiagramInfo info) {
+  public void scan(TypeDeclaration<?> from, MethodCallExpr mc, SecuenceDiagramInfo info) {
     if( null != from && null != mc ) {
       info.setActivation(from.getNameAsString(), mc);
     }
@@ -114,7 +117,7 @@ public class SecuencePainter {
     }
   }
 
-  /* default */ void addExpression(Expression exp, String retorno, SecuenceDiagramInfo info) {
+  public void addExpression(Expression exp, String retorno, SecuenceDiagramInfo info) {
     if (exp instanceof ObjectCreationExpr) {
       info.addSelfCallback( retorno + " = " + exp.toString() );
     } else if (exp instanceof MethodCallExpr) {
@@ -138,6 +141,9 @@ public class SecuencePainter {
             }
           }
           if( !handled && !mc.getScope().isPresent() ) {
+            if( mc.toString().contains("ifPresent") ) {
+              System.err.println(">>>");
+            }
             info.addSelfCallback(mc);
           }
       }
@@ -173,13 +179,13 @@ public class SecuencePainter {
     });
   }
 
-  private void addStatements(NodeList<Statement> mc, SecuenceDiagramInfo info) {
+  public void addStatements(NodeList<Statement> mc, SecuenceDiagramInfo info) {
     for (Statement statement : mc) {
       addStatement(statement, info);
     }
   }
 
-  private void addStatement(Statement mc, SecuenceDiagramInfo info) {
+  public void addStatement(Statement mc, SecuenceDiagramInfo info) {
     if (mc instanceof IfStmt) {
       IfStmt theIf = (IfStmt) mc;
       info.addStep("alt " + theIf.getCondition());
