@@ -14,7 +14,7 @@ public class BuilderCoderCallback implements CodeSpecificCallback {
 
   @Override
   public void handle(MethodCallExpr mc, SecuenceDiagramInfo info, String retorno) {
-    String note = String.join(").\n", mc.toString().split("\\)\\.)"));
+    String note = String.join(").\n", mc.toString().split("\\)\\."));
     info.addSelfCallback(retorno);
     info.addRightNote( note );
   }
