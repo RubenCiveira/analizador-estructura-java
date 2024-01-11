@@ -1,7 +1,9 @@
 package net.civeira.scanner.java.codescanner.sequence;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import com.github.javaparser.ast.body.ClassOrInterfaceDeclaration;
 import com.github.javaparser.ast.body.FieldDeclaration;
@@ -38,6 +40,7 @@ public class SecuenceDiagramInfo {
   private final int deep;
   @Getter
   private final boolean handleCatch;
+  private final Map<String, String> alias = new HashMap<>();
 
   public SecuenceDiagramInfo(List<SecuenceDiagramInfo> stack, List<String> entities,
       List<String> sequences, List<VariableDeclarator> vds, String result, SecuencePainter seq,
@@ -72,6 +75,10 @@ public class SecuenceDiagramInfo {
   }
 
   public void addStep(String str) {
+    if( str.contains("if (")) {
+      System.out.println( str );
+      new RuntimeException().printStackTrace();
+    }
     sequences.add("" + tabs + str.trim() + "\n");
   }
 
@@ -103,6 +110,18 @@ public class SecuenceDiagramInfo {
 
   public void addIncomeReturn(String from, String name) {
     addStep(from + " --> " + typeDeclaration.getNameAsString() + " : " + name);
+  }
+  
+  public void addLeftNote(String str) {
+    sequences.add("" + tabs + "note left\n" 
+                      + str.trim() + "\n"
+                      + tabs + "end note\n");
+  }
+  
+  public void addRightNote(String str) {
+    sequences.add("" + tabs + "note right\n" 
+                      + str.trim() + "\n"
+                      + tabs + "end note\n");
   }
   
   public void addCallback(String to, MethodCallExpr mc) {
@@ -159,15 +178,25 @@ public class SecuenceDiagramInfo {
     return lookup(mc, retorno, true);
   }
   
-  public Optional<SecuenceDiagramInfo> lookup(MethodCallExpr mc, String retorno, boolean initial) {
+  private Optional<SecuenceDiagramInfo> lookup(MethodCallExpr mc, String retorno, boolean initial) {
     Optional<SecuenceDiagramInfo> result = Optional.empty();
     Optional<Expression> scope = mc.getScope();
     if (scope.isPresent()) {
       Expression expression = scope.get();
       result = lookupScope(mc, expression, retorno, initial);
     } else {
-      // addSelfCallback(mc, retorno);
-      result = jumpTo(mc);
+      // Tengoq ue buscar dentro de mi.
+      List<MethodDeclaration> methodsByName = typeDeclaration.getMethodsByName( mc.getNameAsString() );
+      for(MethodDeclaration md: methodsByName) {
+        if( md.getParameters().size() == mc.getArguments().size() ) {
+          if( md.getBody().isPresent() ) {
+            return Optional.of(new SecuenceDiagramInfo(new ArrayList<>(stack), entities,
+                sequences, new ArrayList<>(vds), retorno, seq, pack, md,
+                typeDeclaration, typeDeclaration.getName().asString(), tabs,
+                deep, false));
+          }
+        }
+      }
     }
     return result;
   }
@@ -185,13 +214,13 @@ public class SecuenceDiagramInfo {
         if( lookup.isPresent() ) {
           addCallback( lookup.get().typeDeclaration.getNameAsString(), childMc, retorno);
         } else {
-          if( initial ) {
-            // Si es la llamada inicial => resolvemos y pintamos
-            addSelfCallback( methodCall( childMc ) + "." + mc.getNameAsString() + args(mc)  );
-          } else {
-            // Si no es la llamada inicial => vamos resolviendo para facilitar los datos
-            methodCall( childMc );
-          }
+//          if( initial ) {
+//            // Si es la llamada inicial => resolvemos y pintamos
+//            addSelfCallback( methodCall( childMc ) + "." + mc.getNameAsString() + args(mc)  );
+//          } else {
+//            // Si no es la llamada inicial => vamos resolviendo para facilitar los datos
+//            methodCall( childMc );
+//          }
         }
       }
     } else if (expression instanceof EnclosedExpr) {
@@ -315,12 +344,10 @@ public class SecuenceDiagramInfo {
         addEntity( entityType(td), type);
         result = jumpTo(td, mc);
         if( !result.isPresent() ) {
-          // TODO: el metodo no existe, seguramente lombok o similar.
           addCallback(type, mc);
         }
       } else {
-        // FIXME: hay que ver las clases.
-        // System.err.println("No encuentro a " + fullType);
+        result = jumpTo(mc);
       }
     }
     return result;
@@ -351,10 +378,10 @@ public class SecuenceDiagramInfo {
     return mc.getScope().map(sc -> sc.toString() + ".").orElse("") + mc.getNameAsString() + args(mc);
   }
   
-    
-  private boolean isForLambda(MethodCallExpr mc) {
+  public boolean isForLambda(MethodCallExpr mc) {
     return isForLambda(mc, true);
   }
+
   private boolean isForLambda(MethodCallExpr mc, boolean initial) {
     boolean use = false;
     for (Expression expression : mc.getArguments()) {
@@ -376,20 +403,21 @@ public class SecuenceDiagramInfo {
     String args = "";
     for (Expression expression : mc.getArguments()) {
       if( expression instanceof MethodCallExpr ) {
-        String nn = callName( (MethodCallExpr)expression );
-        seq.addExpression(expression, nn, this);
+        String nn = callName( (MethodCallExpr)expression, 10 );
+//        seq.addExpression(expression, nn, this);
         args += ", " + nn;
       } else if( expression instanceof LambdaExpr || expression instanceof MethodReferenceExpr) {
-        int limit = 30;
-        String str = expression.toString();
-        str = str.length() > limit ? str.substring(0, limit - 3) + "..." : str;
-        for (LambderResolver lambderResolver : seq.lamders) {
-          if( lambderResolver.canHandle(mc) ) {
-            str = lambderResolver.resolveAsVariable(mc, expression, seq, this);
-            break;
-          }
-        }
-        args  += ", " + str;
+        args += ", " + sanitice( expression.toString(), 10 );
+//        int limit = 30;
+//        String str = expression.toString();
+//        str = str.length() > limit ? str.substring(0, limit - 3) + "..." : str;
+//        for (LambderResolver lambderResolver : seq.lamders) {
+//          if( lambderResolver.canHandle(mc) ) {
+//            str = lambderResolver.resolveAsVariable(mc, expression, seq, this);
+//            break;
+//          }
+//        }
+//        args  += ", " + str;
       } else {
         args += ", " + expression;
       }
@@ -401,8 +429,28 @@ public class SecuenceDiagramInfo {
     return "(" + (args.length() > limit ? args.substring(0, limit - 3) + "..." : args) + ")";
   }
   
-  private String callName(MethodCallExpr expression) {
+  public void addDirectCallForArguments(MethodCallExpr expression) {
+    String key = expression.toString();
+    alias.put(key, key);
+  }
+  
+  public String sanitice(String str, int limit) {
+    if( -1 != str.indexOf('\n') ) {
+      str = str.substring(0, str.indexOf('\n')-1);
+    }
+    // int limit = 10;
+    return str.length() > limit ? str.substring(0, limit - 3) + "..." : str;
+  }
+  
+  public String callName(MethodCallExpr expression, int limit) {
     String str = expression.getNameAsString();
+    String key = expression.toString();
+    if( alias.containsKey(key) ) {
+      return alias.get(key);
+    }
+    if( key.endsWith("build()") && -1 != key.indexOf('.')) {
+      return key.substring(0, key.indexOf('.'));
+    }
     int dot = str.indexOf('.');
     if( dot > 0 ) {
       str = str.substring(dot);
@@ -411,8 +459,7 @@ public class SecuenceDiagramInfo {
     if( chap > 0 ) {
       str = str.substring( chap );
     }
-    int limit = 30;
-    return str.length() > limit ? str.substring(0, limit - 3) + "..." : str;
+    return sanitice( str, limit );
   }
   
   private String entityType(TypeDeclaration<?> td) {

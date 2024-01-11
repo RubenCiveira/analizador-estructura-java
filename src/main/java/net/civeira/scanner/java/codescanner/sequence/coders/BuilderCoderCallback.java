@@ -4,7 +4,7 @@ import com.github.javaparser.ast.expr.MethodCallExpr;
 import net.civeira.scanner.java.codescanner.sequence.CodeSpecificCallback;
 import net.civeira.scanner.java.codescanner.sequence.SecuenceDiagramInfo;
 
-public class BuilderCodeCallback implements CodeSpecificCallback {
+public class BuilderCoderCallback implements CodeSpecificCallback {
 
   @Override
   public boolean canHandle(MethodCallExpr mc) {

@@ -11,7 +11,9 @@ import com.github.javaparser.ast.body.TypeDeclaration;
 import com.github.javaparser.ast.body.VariableDeclarator;
 import com.github.javaparser.ast.expr.AssignExpr;
 import com.github.javaparser.ast.expr.Expression;
+import com.github.javaparser.ast.expr.LambdaExpr;
 import com.github.javaparser.ast.expr.MethodCallExpr;
+import com.github.javaparser.ast.expr.MethodReferenceExpr;
 import com.github.javaparser.ast.expr.NameExpr;
 import com.github.javaparser.ast.expr.ObjectCreationExpr;
 import com.github.javaparser.ast.expr.VariableDeclarationExpr;
@@ -31,6 +33,7 @@ import com.github.javaparser.ast.stmt.ThrowStmt;
 import com.github.javaparser.ast.stmt.TryStmt;
 import com.github.javaparser.ast.stmt.WhileStmt;
 import net.civeira.scanner.java.Project;
+import net.civeira.scanner.java.codescanner.sequence.coders.BuilderCoderCallback;
 import net.civeira.scanner.java.codescanner.sequence.coders.StreamCoderCallback;
 import net.civeira.scanner.java.codescanner.sequence.lambders.GenericLambdaResolver;
 import net.civeira.scanner.java.codescanner.sequence.searchers.QuarkusAppTypeSearchers;
@@ -50,16 +53,23 @@ public class SecuencePainter {
     searchers.add(new SqlTypeSearchers());
     searchers.add(new QuarkusAppTypeSearchers(project));
     specificators.add(new StreamCoderCallback());
+    specificators.add(new BuilderCoderCallback() );
     lamders.add(new GenericLambdaResolver());
   }
 
   public List<LocalDiagram> generateSequencesDia(File base) {
     List<LocalDiagram> diagrams = new ArrayList<>();
     for (Entry<String, TypeDeclaration<?>> entry : this.project.types.entrySet()) {
+//      if( !entry.getKey().endsWith("MenuServiceImpl") ) {
+//        continue;
+//      }
       TypeDeclaration<?> typeDeclaration = entry.getValue();
       for (MethodDeclaration methodDeclaration : typeDeclaration.getMethods()) {
         methodDeclaration.getBody().ifPresent(body -> {
-          if (methodDeclaration.isPublic()) {
+//          if( ! methodDeclaration.getNameAsString().equals("getUserMenu") ) {
+//            return;
+//          }
+          if ( methodDeclaration.isPublic()) {
             String txt = "";
             List<String> entities = new ArrayList<>();
             entities.add("participant " + typeDeclaration.getNameAsString());
@@ -68,7 +78,7 @@ public class SecuencePainter {
                 new SecuenceDiagramInfo(new ArrayList<>(), entities, sequences, new ArrayList<>(), "result", this,
                     entry.getKey(), methodDeclaration, typeDeclaration, "Start", "", DEEP, false);
             scan(info);
-            if (sequences.size() > 1 && !sequences.get(1).endsWith(" Start: result\n")) {
+            // if (sequences.size() > 1 && !sequences.get(1).endsWith(" Start: result\n")) {
               clearEntities(entities, "System.out");
               clearEntities(entities, "System.err");
               // @formatter:off
@@ -87,7 +97,7 @@ public class SecuencePainter {
                               + methodDeclaration.getNameAsString() + ".puml"));
               dg.setContent(txt);
               diagrams.add(dg);
-            }
+            // }
           }
         });
       }
@@ -116,40 +126,112 @@ public class SecuencePainter {
       info.addReturnCallback();
     }
   }
-
+  
+  private void deenvolv(MethodCallExpr mc, SecuenceDiagramInfo info) {
+    Optional<Expression> scope = mc.getScope();
+    boolean isLambda = false;
+    for (Expression expression : mc.getArguments()) {
+      if( expression instanceof LambdaExpr || expression instanceof MethodReferenceExpr) {
+        for (LambderResolver lambderResolver : lamders) {
+          if( lambderResolver.canHandle(mc) ) {
+//            System.out.println("Quiero ver a " + mc.getNameAsString() + " con " + mc.getScope() );
+//            if( "ifPresentOrElse".equals(mc.getNameAsString() ) ) {
+//              new RuntimeException().printStackTrace();
+//            }
+            lambderResolver.resolveAsVariable(mc, this, info);
+//            System.out.println("=====");
+            isLambda = true;
+            break;
+          }
+        }
+        if( isLambda ) {
+          break;
+        }
+      }
+    }
+    if( !isLambda ) {
+      for (Expression expression : mc.getArguments()) {
+        if( expression instanceof MethodCallExpr ) {
+          MethodCallExpr arg = (MethodCallExpr)expression;
+          String nn = info.callName(arg, 10);
+          if( !addExpression(expression, nn, info, true) ) {
+            info.addDirectCallForArguments(arg);
+          }
+  //      } else if( expression instanceof LambdaExpr || expression instanceof MethodReferenceExpr) {
+  //        for (LambderResolver lambderResolver : lamders) {
+  //          if( lambderResolver.canHandle(mc) ) {
+  //            lambderResolver.resolveAsVariable(mc, expression, this, info);
+  //            break;
+  //          }
+  //        }
+        }
+      }
+    }
+    if( scope.isPresent() ) {
+      Expression expression = scope.get();
+      if( expression instanceof MethodCallExpr ) {
+        deenvolv( (MethodCallExpr) expression, info);
+      }
+    }
+  }
   public void addExpression(Expression exp, String retorno, SecuenceDiagramInfo info) {
+    addExpression(exp, retorno, info, false);
+  }
+  
+  private boolean addExpression(Expression exp, String retorno, SecuenceDiagramInfo info, boolean inline) {
     if (exp instanceof ObjectCreationExpr) {
       info.addSelfCallback( retorno + " = " + exp.toString() );
+      return true;
     } else if (exp instanceof MethodCallExpr) {
       MethodCallExpr mc = (MethodCallExpr) exp;
-      Optional<SecuenceDiagramInfo> lookup = info.lookup(mc, retorno);
-      if( lookup.isPresent() ) {
-        SecuenceDiagramInfo seq = lookup.get();
-        if( seq.getMethodDeclaration() == info.getMethodDeclaration() ) {
-          // TODO: add note of recursión
-        } else {
-          seq.addStep("group#Gold #LightBlue " + mc.getNameAsString() + "");
-          scan(info.getTypeDeclaration(), mc, seq.descentJustified(retorno));
-          seq.addStep("end");
+      deenvolv( mc, info );
+      boolean handled = false;
+      for(CodeSpecificCallback spe: specificators) {
+        if( spe.canHandle(mc) ) {
+          spe.handle( mc, info, retorno );
+          handled = true;
+          return true;
         }
-      } else {
-          boolean handled = false;
-          for(CodeSpecificCallback spe: specificators) {
-            if( spe.canHandle(mc) ) {
-              spe.handle( mc );
-              handled = true;
-            }
-          }
-          if( !handled && !mc.getScope().isPresent() ) {
-            if( mc.toString().contains("ifPresent") ) {
-              System.err.println(">>>");
-            }
-            info.addSelfCallback(mc);
-          }
       }
+      if( !handled ) {
+        Optional<SecuenceDiagramInfo> lookup = info.lookup(mc, retorno);
+        if( lookup.isPresent() ) {
+          SecuenceDiagramInfo seq = lookup.get();
+          if( seq.getMethodDeclaration() == info.getMethodDeclaration() ) {
+            // TODO: add note of recursión
+            // System.out.println("  -> recursion " + seq);
+          } else {
+            // seq.addStep("group#Gold #LightBlue " + mc.getNameAsString() + "");
+            scan(info.getTypeDeclaration(), mc, seq.descentJustified(retorno));
+            // seq.addStep("end");
+            return true;
+          }
+        } else if(!inline) {
+          info.addSelfCallback(mc);
+          return true;
+        }
+      }
+//      else {
+//          boolean handled = false;
+//          for(CodeSpecificCallback spe: specificators) {
+//            if( spe.canHandle(mc) ) {
+//              spe.handle( mc );
+//              handled = true;
+//            }
+//          }
+//          if( !handled && !mc.getScope().isPresent() ) {
+//            if( mc.toString().contains("ifPresent") ) {
+//              System.err.println(">>>");
+//            }
+//            info.addSelfCallback(mc);
+//          } else {
+//            System.out.println("Entrar en " + mc);
+//          }
+//      }
     } else if (exp instanceof AssignExpr) {
       AssignExpr assign = (AssignExpr) exp;
       addExpression(assign.getValue(), assign.getTarget().toString(), info);
+      return true;
     } else if (exp instanceof VariableDeclarationExpr) {
       VariableDeclarationExpr vd = (VariableDeclarationExpr) exp;
       for (VariableDeclarator variableDeclarator : vd.getVariables()) {
@@ -158,11 +240,14 @@ public class SecuencePainter {
           addExpression(init, variableDeclarator.getNameAsString(), info);
         });
       }
+      return true;
     } else if ( exp instanceof NameExpr ) {
       // Un nombre suelto no aporta nada
     } else {
       info.addSelfCallback(exp.toString(), retorno);
+      return true;
     }
+    return false;
   }
 
   private void addIfStatement(IfStmt theIf, SecuenceDiagramInfo info) {
@@ -274,7 +359,7 @@ public class SecuencePainter {
       info.addStep("end");
     } else {
       // FIXME: ver que hacer
-      // System.out.println("Tengo a " + mc.getClass() + ": " + mc);
+      System.out.println("Tengo a " + mc.getClass() + ": " + mc);
     }
   }
   
