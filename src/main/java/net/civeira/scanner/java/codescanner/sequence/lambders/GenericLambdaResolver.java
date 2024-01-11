@@ -34,7 +34,7 @@ public class GenericLambdaResolver implements LambderResolver {
     if (mc.getNameAsString().equals("ifPresentOrElse")) {
       dia.addStep("alt " + in);
       exp(mc, mc.getArgument(0), seq, dia);
-      dia.addStep("else!" + in);
+      dia.addStep("else !" + in);
       exp(mc, mc.getArgument(1), seq, dia);
       dia.addStep("end");
     } else {
