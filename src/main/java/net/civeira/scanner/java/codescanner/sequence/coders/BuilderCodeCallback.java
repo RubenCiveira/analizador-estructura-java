@@ -4,19 +4,19 @@ import com.github.javaparser.ast.expr.MethodCallExpr;
 import net.civeira.scanner.java.codescanner.sequence.CodeSpecificCallback;
 import net.civeira.scanner.java.codescanner.sequence.SecuenceDiagramInfo;
 
-public class StreamCoderCallback implements CodeSpecificCallback {
+public class BuilderCodeCallback implements CodeSpecificCallback {
 
   @Override
   public boolean canHandle(MethodCallExpr mc) {
-//    System.out.println("\nMiro a ver si " + mc);
-    return false;
+    return mc.getScope().isPresent() && mc.toString().contains(".builder().")
+        && mc.getName().toString().equals("build") && mc.getArguments().isEmpty();
   }
 
   @Override
   public void handle(MethodCallExpr mc, SecuenceDiagramInfo info, String retorno) {
-    // TODO Auto-generated method stub
-    
+    String note = String.join(").\n", mc.toString().split("\\)\\.)"));
+    info.addSelfCallback(retorno);
+    info.addRightNote( note );
   }
 
-  
 }

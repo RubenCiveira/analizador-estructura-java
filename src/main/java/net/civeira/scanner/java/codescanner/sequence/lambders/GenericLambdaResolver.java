@@ -13,41 +13,65 @@ import net.civeira.scanner.java.codescanner.sequence.SecuenceDiagramInfo;
 import net.civeira.scanner.java.codescanner.sequence.SecuencePainter;
 
 public class GenericLambdaResolver implements LambderResolver {
-  private static final List<String> KNOWNS = Arrays.asList("ifPresent", "then", "otherwise",
-      "orElseThrow", "orElseGet", "forEach", "findOne", "count", "list", "agregate",
-      "retrieveLastFromStore", "retrieveFromStore", "collect", "map", "flatMap", "filter");
+  private static final List<String> KNOWNS =
+      Arrays.asList("ifPresent", "then", "otherwise", "orElseThrow", "orElseGet", "forEach",
+          "findone", "count", "list", "agregate", "ifPresentOrElse", "retrievelastFromStore",
+          "retrieveFromStore", "collect", "map", "flatMap", "filter");
 
   @Override
   public boolean canHandle(MethodCallExpr mc) {
     String name = mc.getNameAsString();
     boolean result = KNOWNS.contains(name);
     if (!result) {
-      System.err.println(">> Error con " + name);
+      System.err.println("> Error con " + name);
     }
     return result;
   }
 
-  @Override
-  public String resolveAsVariable(MethodCallExpr mc, Expression exp, SecuencePainter seq,
-      SecuenceDiagramInfo dia) {
-    // TODO Auto-generated method stub
-    if (exp instanceof LambdaExpr) {
-      return lambda(mc, (LambdaExpr) exp, seq, dia);
+  public void resolveAsVariable(MethodCallExpr mc, SecuencePainter seq, SecuenceDiagramInfo dia) {
+    String in = dia.sanitice(mc.getScope().map(Object::toString).orElse(".."), 30);
+    if (mc.getNameAsString().equals("ifPresentOrElse")) {
+      dia.addStep("alt " + in);
+      exp(mc, mc.getArgument(0), seq, dia);
+      dia.addStep("else!" + in);
+      exp(mc, mc.getArgument(1), seq, dia);
+      dia.addStep("end");
+    } else {
+      mono(in, mc, seq, dia);
     }
-    if (exp instanceof MethodReferenceExpr) {
-      return reference(mc, (MethodReferenceExpr) exp, seq, dia);
-    }
-    // dia.addSelfCallback("ll = " + exp.toString());
-    return exp.toString();
   }
 
-  private String lambda(MethodCallExpr mc, LambdaExpr exp, SecuencePainter seq,
-      SecuenceDiagramInfo parent) {
-    if( mc.getNameAsString().equals("ifPresent") ) {
-      parent.addStep("alt " + mc.getScope().map(sc -> sc.toString()).orElse("..") );
+  private void mono(String in, MethodCallExpr mc, SecuencePainter seq, SecuenceDiagramInfo dia) {
+    boolean group = true;
+    if (mc.getNameAsString().equals("ifPresent")) {
+      dia.addStep("alt " + in);
+    } else if (mc.getNameAsString().equals("ifPresent")) {
+      dia.addStep("loop " + in);
+    } else if (mc.getNameAsString().equals("ifPresent")) {
+      group = false;
     } else {
-      parent.addStep("group " + mc);
+      dia.addStep("group " + in);
     }
+    for (Expression exp : mc.getArguments()) {
+      exp(mc, exp, seq, dia);
+    }
+    if (group) {
+      dia.addStep("end");
+    }
+  }
+
+  private void exp(MethodCallExpr mc, Expression exp, SecuencePainter seq,
+      SecuenceDiagramInfo dia) {
+    if (exp instanceof LambdaExpr) {
+      lambda(mc, (LambdaExpr) exp, seq, dia);
+    }
+    if (exp instanceof MethodReferenceExpr) {
+      reference(mc, (MethodReferenceExpr) exp, seq, dia);
+    }
+  }
+
+  private void lambda(MethodCallExpr mc, LambdaExpr exp, SecuencePainter seq,
+      SecuenceDiagramInfo parent) {
     SecuenceDiagramInfo dia = parent.descentJustified("lambda");
     for (Node node : exp.getBody().getChildNodes()) {
       if (node instanceof Statement) {
@@ -58,21 +82,11 @@ public class GenericLambdaResolver implements LambderResolver {
         System.err.println("=======" + node.getClass() + ", " + node.toString());
       }
     }
-    parent.addStep("end");
-    return "lambda";
   }
 
-  private String reference(MethodCallExpr mc, MethodReferenceExpr exp, SecuencePainter seq,
+  private void reference(MethodCallExpr mc, MethodReferenceExpr exp, SecuencePainter seq,
       SecuenceDiagramInfo parent) {
-    if( mc.getNameAsString().equals("ifPresent") ) {
-      parent.addStep("alt " + mc.getScope().map(sc -> sc.toString()).orElse("..") );
-    } else {
-      parent.addStep("group " + mc.getNameAsString() + " " + mc.getScope().map(sc -> sc.toString()).orElse(".."));
-    }
-    String participant = parent.lookupForVariable( exp.getScope().toString() );
-    // FIXME: tenemos que poder llamar hacia el nuevo participante que se ha contruido.
-    parent.addCallback( participant, exp.toString() );
-    parent.addStep("end");
-    return "lambda";// exp.toString();
+    String participant = parent.lookupForVariable(exp.getScope().toString());
+    parent.addCallback(participant, exp.toString());
   }
 }

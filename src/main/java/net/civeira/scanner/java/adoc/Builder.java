@@ -45,9 +45,7 @@ public class Builder {
         }
       }
     }
-    File[] dirs = file.listFiles(filter -> {
-      return filter.isDirectory();
-    });
+    File[] dirs = file.listFiles(File::isDirectory);
     if (null != dirs) {
       for (File dir : dirs) {
         scan(seq, dir, new File(content, dir.getName()));

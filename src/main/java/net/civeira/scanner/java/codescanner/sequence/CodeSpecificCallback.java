@@ -6,6 +6,6 @@ public interface CodeSpecificCallback {
 
   boolean canHandle(MethodCallExpr mc);
 
-  void handle(MethodCallExpr mc);
+  void handle(MethodCallExpr mc, SecuenceDiagramInfo info, String retorno);
 
 }
