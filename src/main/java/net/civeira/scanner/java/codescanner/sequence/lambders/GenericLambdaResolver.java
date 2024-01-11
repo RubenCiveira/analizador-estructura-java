@@ -28,6 +28,7 @@ public class GenericLambdaResolver implements LambderResolver {
     return result;
   }
 
+  @Override
   public void resolveAsVariable(MethodCallExpr mc, SecuencePainter seq, SecuenceDiagramInfo dia) {
     String in = dia.sanitice(mc.getScope().map(Object::toString).orElse(".."), 30);
     if (mc.getNameAsString().equals("ifPresentOrElse")) {
@@ -45,9 +46,9 @@ public class GenericLambdaResolver implements LambderResolver {
     boolean group = true;
     if (mc.getNameAsString().equals("ifPresent")) {
       dia.addStep("alt " + in);
-    } else if (mc.getNameAsString().equals("ifPresent")) {
+    } else if (mc.getNameAsString().equals("forEach")) {
       dia.addStep("loop " + in);
-    } else if (mc.getNameAsString().equals("ifPresent")) {
+    } else if (mc.getNameAsString().equals("map")) {
       group = false;
     } else {
       dia.addStep("group " + in);
